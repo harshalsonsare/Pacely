@@ -1,0 +1,6 @@
+{
+  "name": "Pacely",
+  "description": "Offline Strava-style running and walking GPS tracker with live route canvas, kilometer splits, elevation gain, and JSON/CSV/GPX export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

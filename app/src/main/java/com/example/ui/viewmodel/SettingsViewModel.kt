@@ -26,6 +26,7 @@ data class SettingsUiState(
     val autoPauseSpeedThresholdMps: Float = 0.5f,
     val voiceSplitCuesEnabled: Boolean = true,
     val splitIntervalKm: Float = 1.0f,
+    val darkMapModeEnabled: Boolean = true,
     val totalWorkoutsCount: Int = 0,
     val isTransferring: Boolean = false
 )
@@ -41,9 +42,10 @@ class SettingsViewModel(
         preferencesRepository.autoPauseEnabledFlow,
         preferencesRepository.autoPauseSpeedThresholdMpsFlow,
         preferencesRepository.voiceSplitCuesEnabledFlow,
-        preferencesRepository.splitIntervalKmFlow
-    ) { autoPause, threshold, voiceCues, splitKm ->
-        AutomationPrefs(autoPause, threshold, voiceCues, splitKm)
+        preferencesRepository.splitIntervalKmFlow,
+        preferencesRepository.darkMapModeEnabledFlow
+    ) { autoPause, threshold, voiceCues, splitKm, darkMap ->
+        AutomationPrefs(autoPause, threshold, voiceCues, splitKm, darkMap)
     }
 
     val uiState: StateFlow<SettingsUiState> = combine(
@@ -58,6 +60,7 @@ class SettingsViewModel(
             autoPauseSpeedThresholdMps = autoPrefs.autoPauseSpeedThresholdMps,
             voiceSplitCuesEnabled = autoPrefs.voiceSplitCuesEnabled,
             splitIntervalKm = autoPrefs.splitIntervalKm,
+            darkMapModeEnabled = autoPrefs.darkMapModeEnabled,
             totalWorkoutsCount = workouts.size,
             isTransferring = isTransferring
         )
@@ -71,7 +74,8 @@ class SettingsViewModel(
         val autoPauseEnabled: Boolean,
         val autoPauseSpeedThresholdMps: Float,
         val voiceSplitCuesEnabled: Boolean,
-        val splitIntervalKm: Float
+        val splitIntervalKm: Float,
+        val darkMapModeEnabled: Boolean
     )
 
     fun updateWeightKg(weightKg: Float) {
@@ -101,6 +105,12 @@ class SettingsViewModel(
     fun setSplitIntervalKm(intervalKm: Float) {
         viewModelScope.launch {
             preferencesRepository.setSplitIntervalKm(intervalKm)
+        }
+    }
+
+    fun setDarkMapModeEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setDarkMapModeEnabled(enabled)
         }
     }
 

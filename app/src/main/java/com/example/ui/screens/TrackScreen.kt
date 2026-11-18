@@ -79,7 +79,7 @@ import com.example.data.model.TrackingStatus
 import com.example.data.model.TrackingUiState
 import com.example.tracking.GeoMath
 import com.example.ui.components.CanvasPoint
-import com.example.ui.components.LiveRouteCanvas
+import com.example.ui.components.OsmRouteMap
 import com.example.ui.theme.CarbonSurface
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.ElectricOrange
@@ -225,7 +225,7 @@ fun TrackScreen(
                     modifier = Modifier.fillMaxSize(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    LiveRouteCanvas(
+                    OsmRouteMap(
                         points = canvasPoints,
                         accentColor = accentColor,
                         isLive = true,
@@ -237,7 +237,9 @@ fun TrackScreen(
                         headingSourceMode = state.headingSourceMode,
                         isUsingGpsBearing = state.isUsingGpsBearing,
                         needsCompassCalibration = state.needsCompassCalibration,
+                        isDarkMapMode = state.darkMapModeEnabled,
                         onToggleHeadingSource = viewModel::toggleHeadingSourceMode,
+                        onToggleDarkMapMode = viewModel::toggleDarkMapMode,
                         modifier = Modifier
                             .weight(1.05f)
                             .fillMaxHeight()
@@ -275,7 +277,7 @@ fun TrackScreen(
                         .padding(bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    LiveRouteCanvas(
+                    OsmRouteMap(
                         points = canvasPoints,
                         accentColor = accentColor,
                         isLive = true,
@@ -287,10 +289,12 @@ fun TrackScreen(
                         headingSourceMode = state.headingSourceMode,
                         isUsingGpsBearing = state.isUsingGpsBearing,
                         needsCompassCalibration = state.needsCompassCalibration,
+                        isDarkMapMode = state.darkMapModeEnabled,
                         onToggleHeadingSource = viewModel::toggleHeadingSourceMode,
+                        onToggleDarkMapMode = viewModel::toggleDarkMapMode,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(240.dp)
+                            .height(270.dp)
                     )
 
                     TelemetryDeck(state = state, accentColor = accentColor)

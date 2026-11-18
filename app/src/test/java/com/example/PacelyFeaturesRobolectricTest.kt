@@ -14,6 +14,7 @@ import com.example.data.model.TrackingStatus
 import com.example.data.model.WorkoutWithDetails
 import com.example.data.preferences.UserPreferencesRepository
 import com.example.data.repository.WorkoutRepository
+import com.example.map.OsmMapManager
 import com.example.tracking.CompassMath
 import com.example.tracking.PersonalRecordsCalculator
 import com.example.tracking.SplitFeedbackEngine
@@ -24,6 +25,7 @@ import com.example.ui.theme.DangerRed
 import com.example.ui.theme.ElectricOrange
 import com.example.ui.theme.GpsEmerald
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -282,5 +284,48 @@ class PacelyFeaturesRobolectricTest {
         assertEquals(5.2, peg.loggedDistanceKm, 0.01)
         assertEquals(50.2, peg.totalDistanceKm, 0.01)
         assertEquals(1, peg.workoutCount)
+    }
+
+    @Test
+    fun osmMapManager_configures500MbInternalCache_andComputesBoundingBoxes() = runTest {
+        OsmMapManager.ensureInitialized(context)
+        val config = org.osmdroid.config.Configuration.getInstance()
+        assertEquals(OsmMapManager.CACHE_LIMIT_BYTES, config.tileFileSystemCacheMaxBytes)
+        assertTrue(config.osmdroidBasePath.absolutePath.contains(context.filesDir.absolutePath))
+        assertTrue(config.osmdroidTileCache.absolutePath.contains("osmdroid"))
+        assertTrue(config.expirationOverrideDuration >= OsmMapManager.PERMANENT_TILE_EXPIRATION_MS)
+
+        val bbox2km = OsmMapManager.computeBoundingBoxForRadiusKm(37.7749, -122.4194, 2.0)
+        val bbox10km = OsmMapManager.computeBoundingBoxForRadiusKm(37.7749, -122.4194, 10.0)
+        assertTrue(bbox10km.latNorth > bbox2km.latNorth)
+        assertTrue(bbox10km.lonEast > bbox2km.lonEast)
+        assertTrue(bbox10km.latSouth < bbox2km.latSouth)
+        assertTrue(bbox10km.lonWest < bbox2km.lonWest)
+
+        val cached = OsmMapManager.hasCachedTilesForArea(context, 37.7749, -122.4194, 15)
+        assertFalse(cached)
+        assertTrue(OsmMapManager.getCachedStorageMb(context) >= 0.0)
+    }
+
+    @Test
+    fun darkMapMode_defaultsTrue_andColorMatrixMapsBrightTilesToDarkObsidian() = runBlocking {
+        assertTrue(prefs.darkMapModeEnabledFlow.first())
+        prefs.setDarkMapModeEnabled(false)
+        assertFalse(prefs.darkMapModeEnabledFlow.first())
+        prefs.setDarkMapModeEnabled(true)
+        assertTrue(prefs.darkMapModeEnabledFlow.first())
+
+        val matrix = OsmMapManager.createDarkModeColorMatrix().array
+        // Apply matrix to pure white (255, 255, 255): should produce dark obsidian floor (~14, 18, 25)
+        val rWhite = matrix[0] * 255f + matrix[1] * 255f + matrix[2] * 255f + matrix[4]
+        val gWhite = matrix[5] * 255f + matrix[6] * 255f + matrix[7] * 255f + matrix[9]
+        val bWhite = matrix[10] * 255f + matrix[11] * 255f + matrix[12] * 255f + matrix[14]
+        assertTrue(rWhite in 10f..22f)
+        assertTrue(gWhite in 14f..26f)
+        assertTrue(bWhite in 20f..32f)
+
+        // Apply matrix to dark street label text (30, 30, 30): should lift to bright readable text (>200)
+        val rDarkText = matrix[0] * 30f + matrix[1] * 30f + matrix[2] * 30f + matrix[4]
+        assertTrue(rDarkText > 200f)
     }
 }

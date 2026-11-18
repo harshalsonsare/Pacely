@@ -96,6 +96,11 @@ class WorkoutTrackingManager(
             }
         }
         scope.launch {
+            preferencesRepository.darkMapModeEnabledFlow.collect { enabled ->
+                _uiState.update { it.copy(darkMapModeEnabled = enabled) }
+            }
+        }
+        scope.launch {
             workoutRepository.allShoes.collect { shoes ->
                 if (!hasUserOverriddenShoe) {
                     val defaultId = shoes.firstOrNull { it.isDefault && !it.isRetired }?.id
@@ -182,6 +187,17 @@ class WorkoutTrackingManager(
         scope.launch {
             preferencesRepository.setSplitIntervalKm(clamped)
         }
+    }
+
+    fun setDarkMapModeEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(darkMapModeEnabled = enabled) }
+        scope.launch {
+            preferencesRepository.setDarkMapModeEnabled(enabled)
+        }
+    }
+
+    fun toggleDarkMapMode() {
+        setDarkMapModeEnabled(!_uiState.value.darkMapModeEnabled)
     }
 
     fun selectShoe(shoeId: Long?) {
@@ -313,7 +329,8 @@ class WorkoutTrackingManager(
                 gpsAccuracyMeters = current.gpsAccuracyMeters,
                 lastKnownLocation = current.lastKnownLocation,
                 currentAltitudeMeters = current.currentAltitudeMeters,
-                weightKg = current.weightKg
+                weightKg = current.weightKg,
+                darkMapModeEnabled = current.darkMapModeEnabled
             )
         }
     }

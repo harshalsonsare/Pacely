@@ -62,7 +62,7 @@ import com.example.data.model.ActivityType
 import com.example.tracking.GeoMath
 import com.example.ui.components.CanvasPoint
 import com.example.ui.components.ElevationProfileChart
-import com.example.ui.components.LiveRouteCanvas
+import com.example.ui.components.OsmRouteMap
 import com.example.ui.theme.CarbonSurface
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.ElectricOrange
@@ -92,6 +92,7 @@ fun WorkoutDetailScreen(
     val context = LocalContext.current
     val details by viewModel.observeWorkoutDetail(workoutId).collectAsStateWithLifecycle(initialValue = null)
     val shoes by viewModel.shoes.collectAsStateWithLifecycle()
+    val darkMapMode by viewModel.darkMapModeEnabled.collectAsStateWithLifecycle()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var shoeDropdownExpanded by remember { mutableStateOf(false) }
 
@@ -227,15 +228,17 @@ fun WorkoutDetailScreen(
             }
 
             item {
-                LiveRouteCanvas(
+                OsmRouteMap(
                     points = canvasPoints,
                     accentColor = accentColor,
                     isLive = false,
                     isTracking = false,
                     avgPaceSecPerKm = workout.avgPaceSecPerKm,
+                    isDarkMapMode = darkMapMode,
+                    onToggleDarkMapMode = viewModel::toggleDarkMapMode,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(260.dp)
+                        .height(270.dp)
                 )
             }
 

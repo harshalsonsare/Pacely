@@ -21,6 +21,7 @@ class UserPreferencesRepository(private val context: Context) {
     private val voiceSplitCuesKey = booleanPreferencesKey("voice_split_cues_enabled")
     private val splitIntervalKmKey = floatPreferencesKey("split_interval_km")
     private val headingSourceModeKey = stringPreferencesKey("heading_source_mode")
+    private val darkMapModeEnabledKey = booleanPreferencesKey("dark_map_mode_enabled")
 
     val weightKgFlow: Flow<Float> = context.dataStore.data.map { prefs ->
         (prefs[weightKgKey] ?: 70f).coerceIn(35f, 200f)
@@ -44,6 +45,10 @@ class UserPreferencesRepository(private val context: Context) {
 
     val headingSourceModeFlow: Flow<HeadingSourceMode> = context.dataStore.data.map { prefs ->
         HeadingSourceMode.fromString(prefs[headingSourceModeKey])
+    }
+
+    val darkMapModeEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[darkMapModeEnabledKey] ?: true
     }
 
     suspend fun setWeightKg(weightKg: Float) {
@@ -79,6 +84,12 @@ class UserPreferencesRepository(private val context: Context) {
     suspend fun setHeadingSourceMode(mode: HeadingSourceMode) {
         context.dataStore.edit { prefs ->
             prefs[headingSourceModeKey] = mode.name
+        }
+    }
+
+    suspend fun setDarkMapModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[darkMapModeEnabledKey] = enabled
         }
     }
 }

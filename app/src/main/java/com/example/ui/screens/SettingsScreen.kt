@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.material.icons.rounded.MonitorWeight
 import androidx.compose.material.icons.rounded.PauseCircle
@@ -381,6 +382,48 @@ fun SettingsScreen(
                                 Text("Apply", fontWeight = FontWeight.Bold)
                             }
                         }
+                    }
+
+                    HorizontalDivider(color = HairlineBorder)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.DarkMode,
+                                contentDescription = null,
+                                tint = ElectricOrange
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Dark Mode Map",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Applies an obsidian slate dark theme to offline & online street tiles.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Switch(
+                            checked = state.darkMapModeEnabled,
+                            onCheckedChange = viewModel::setDarkMapModeEnabled,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = ObsidianBg,
+                                checkedTrackColor = ElectricOrange
+                            ),
+                            modifier = Modifier.testTag("settings_dark_map_switch")
+                        )
                     }
                 }
             }

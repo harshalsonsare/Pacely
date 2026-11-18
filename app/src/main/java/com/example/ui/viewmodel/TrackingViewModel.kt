@@ -45,6 +45,10 @@ class TrackingViewModel(
         trackingManager.toggleHeadingSourceMode()
     }
 
+    fun toggleDarkMapMode() {
+        trackingManager.toggleDarkMapMode()
+    }
+
     fun selectActivityType(type: ActivityType) {
         trackingManager.setActivityType(type)
     }

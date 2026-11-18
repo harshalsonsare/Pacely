@@ -4,12 +4,16 @@ import android.content.Context
 import com.example.data.local.PacelyDatabase
 import com.example.data.preferences.UserPreferencesRepository
 import com.example.data.repository.WorkoutRepository
+import com.example.map.OsmMapManager
 import com.example.tracking.CompassHeadingManager
 import com.example.tracking.SplitFeedbackEngine
 import com.example.tracking.WorkoutTrackingManager
 
 class PacelyAppContainer private constructor(context: Context) {
     private val appContext = context.applicationContext
+    init {
+        OsmMapManager.ensureInitialized(appContext)
+    }
     private val database = PacelyDatabase.getInstance(appContext)
     val workoutRepository = WorkoutRepository(database.workoutDao())
     val preferencesRepository = UserPreferencesRepository(appContext)

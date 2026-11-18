@@ -80,6 +80,19 @@ class HistoryViewModel(
             initialValue = emptyList()
         )
 
+    val darkMapModeEnabled: StateFlow<Boolean> = preferencesRepository.darkMapModeEnabledFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
+        )
+
+    fun toggleDarkMapMode() {
+        viewModelScope.launch {
+            preferencesRepository.setDarkMapModeEnabled(!darkMapModeEnabled.value)
+        }
+    }
+
     fun setFilter(filter: HistoryFilter) {
         filterFlow.value = filter
     }

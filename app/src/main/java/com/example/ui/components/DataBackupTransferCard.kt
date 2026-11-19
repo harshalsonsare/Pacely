@@ -19,9 +19,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Backup
-import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.FolderZip
 import androidx.compose.material.icons.rounded.SyncAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -68,6 +69,7 @@ fun DataBackupTransferCard(
     workoutCount: Int,
     isTransferring: Boolean,
     bannerState: TransferBannerState?,
+    onExportFullBackupZipUri: (Uri, (TransferBannerState) -> Unit) -> Unit,
     onExportJsonUri: (Uri, (TransferBannerState) -> Unit) -> Unit,
     onExportCsvUri: (Uri, (TransferBannerState) -> Unit) -> Unit,
     onImportUri: (Uri, (TransferBannerState) -> Unit) -> Unit,
@@ -76,6 +78,17 @@ fun DataBackupTransferCard(
 ) {
     var localStatus by remember(bannerState) { mutableStateOf(bannerState) }
     val dateStamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
+
+    val zipBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null) {
+            onExportFullBackupZipUri(uri) { result ->
+                localStatus = result
+                onShowMessage(result.message)
+            }
+        }
+    }
 
     val jsonExportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -149,7 +162,7 @@ fun DataBackupTransferCard(
             }
 
             Text(
-                text = "Export all workouts and GPS tracks into a single portable JSON backup, export CSV summaries, or import .json backups and .gpx route files completely offline.",
+                text = "Export a complete .zip bundle (full_backup.json with stats, splits & settings + individual .gpx routes for every workout), export standalone .json/.csv files, or import .zip, .json, and .gpx archives offline.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
@@ -189,9 +202,9 @@ fun DataBackupTransferCard(
                 }
             }
 
-            // Primary: Full JSON Backup Export
+            // Primary: Full Backup ZIP Bundle (full_backup.json + all .gpx files)
             Button(
-                onClick = { jsonExportLauncher.launch("pacely_backup_$dateStamp.json") },
+                onClick = { zipBackupLauncher.launch("pacely_full_backup_$dateStamp.zip") },
                 enabled = workoutCount > 0 && !isTransferring,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ElectricOrange,
@@ -201,25 +214,27 @@ fun DataBackupTransferCard(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 13.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("export_full_backup_json_button")
+                    .testTag("export_full_backup_zip_button")
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Backup,
+                    imageVector = Icons.Rounded.FolderZip,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Export Full Backup (.json)",
+                    text = "Export Full Backup (.json + .gpx .zip)",
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            // Primary Import: JSON or GPX
+            // Primary Import: JSON, GPX, or ZIP Backup Archive
             OutlinedButton(
                 onClick = {
                     importLauncher.launch(
                         arrayOf(
+                            "application/zip",
+                            "application/x-zip-compressed",
                             "application/json",
                             "application/gpx+xml",
                             "application/xml",
@@ -246,35 +261,64 @@ fun DataBackupTransferCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Import Workouts (.json / .gpx)",
+                    text = "Import Workouts (.json / .gpx / .zip)",
                     color = WalkCyan,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            // Secondary CSV Summary Export
-            OutlinedButton(
-                onClick = { csvExportLauncher.launch("pacely_summary_$dateStamp.csv") },
-                enabled = workoutCount > 0 && !isTransferring,
-                border = BorderStroke(1.dp, HairlineBorder),
-                shape = RoundedCornerShape(14.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 11.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("export_summary_csv_button")
+            // Secondary Row: Standalone JSON & CSV Exports
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.FileDownload,
-                    contentDescription = null,
-                    tint = TextSecondary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Export Summary Table (.csv)",
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Medium
-                )
+                OutlinedButton(
+                    onClick = { jsonExportLauncher.launch("full_backup_$dateStamp.json") },
+                    enabled = workoutCount > 0 && !isTransferring,
+                    border = BorderStroke(1.dp, HairlineBorder),
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 11.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("export_full_backup_json_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Code,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "JSON Only",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { csvExportLauncher.launch("pacely_summary_$dateStamp.csv") },
+                    enabled = workoutCount > 0 && !isTransferring,
+                    border = BorderStroke(1.dp, HairlineBorder),
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 11.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("export_summary_csv_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.FileDownload,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "CSV Table",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         }
     }

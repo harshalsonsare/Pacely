@@ -93,6 +93,20 @@ class HistoryViewModel(
         }
     }
 
+    val mapOrientationDegrees: StateFlow<Float> = preferencesRepository.mapOrientationDegreesFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 180f
+        )
+
+    fun toggleMapOrientation() {
+        viewModelScope.launch {
+            val next = if (mapOrientationDegrees.value == 0f) 180f else 0f
+            preferencesRepository.setMapOrientationDegrees(next)
+        }
+    }
+
     fun setFilter(filter: HistoryFilter) {
         filterFlow.value = filter
     }
@@ -113,6 +127,28 @@ class HistoryViewModel(
         }
     }
 
+    fun exportFullBackupZipToUri(
+        context: Context,
+        uri: Uri,
+        onComplete: (Result<Int>) -> Unit
+    ) {
+        viewModelScope.launch {
+            transferringFlow.value = true
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val all = repository.getAllWorkoutsWithDetailsOnce()
+                    val settings = preferencesRepository.getBackupSettingsSnapshot()
+                    context.contentResolver.openOutputStream(uri)?.use { stream ->
+                        WorkoutExporter.writeFullBackupZip(all, settings, stream)
+                    } ?: error("Unable to open output stream")
+                    all.size
+                }
+            }
+            transferringFlow.value = false
+            onComplete(result)
+        }
+    }
+
     fun exportAllToUri(
         context: Context,
         uri: Uri,
@@ -125,7 +161,8 @@ class HistoryViewModel(
                 runCatching {
                     val all = repository.getAllWorkoutsWithDetailsOnce()
                     val content = if (isJson) {
-                        WorkoutExporter.toJson(all)
+                        val settings = preferencesRepository.getBackupSettingsSnapshot()
+                        WorkoutExporter.toJson(all, settings)
                     } else {
                         WorkoutExporter.toCsv(all.map { it.workout })
                     }
@@ -156,6 +193,53 @@ class HistoryViewModel(
                         defaultWeightKg = weightKg
                     )
                     repository.importWorkouts(parsed)
+                }
+            }
+            transferringFlow.value = false
+            onComplete(result)
+        }
+    }
+
+    fun exportWorkoutBundleZipToUri(
+        context: Context,
+        workoutId: Long,
+        uri: Uri,
+        onComplete: (Result<Unit>) -> Unit
+    ) {
+        viewModelScope.launch {
+            transferringFlow.value = true
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val details = repository.getWorkoutWithDetailsOnce(workoutId)
+                        ?: error("Workout not found")
+                    context.contentResolver.openOutputStream(uri)?.use { stream ->
+                        WorkoutExporter.writeSingleWorkoutZip(details, stream)
+                    } ?: error("Unable to open output stream")
+                    Unit
+                }
+            }
+            transferringFlow.value = false
+            onComplete(result)
+        }
+    }
+
+    fun exportWorkoutJsonToUri(
+        context: Context,
+        workoutId: Long,
+        uri: Uri,
+        onComplete: (Result<Unit>) -> Unit
+    ) {
+        viewModelScope.launch {
+            transferringFlow.value = true
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val details = repository.getWorkoutWithDetailsOnce(workoutId)
+                        ?: error("Workout not found")
+                    val json = WorkoutExporter.toSingleWorkoutJson(details)
+                    context.contentResolver.openOutputStream(uri)?.use { stream ->
+                        stream.write(json.toByteArray(Charsets.UTF_8))
+                    } ?: error("Unable to open output stream")
+                    Unit
                 }
             }
             transferringFlow.value = false
@@ -198,10 +282,12 @@ class HistoryViewModel(
                 runCatching {
                     val details = repository.getWorkoutWithDetailsOnce(workoutId)
                         ?: error("Workout not found")
-                    val gpx = WorkoutExporter.toGpx(details)
+                    val baseName = WorkoutExporter.singleWorkoutBaseName(details.workout.startTimeMillis)
                     val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
-                    val file = File(exportDir, "pacely_workout_${workoutId}.gpx")
-                    file.writeText(gpx, Charsets.UTF_8)
+                    val file = File(exportDir, "$baseName.zip")
+                    file.outputStream().use { stream ->
+                        WorkoutExporter.writeSingleWorkoutZip(details, stream)
+                    }
                     file
                 }
             }

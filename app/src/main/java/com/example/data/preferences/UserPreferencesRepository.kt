@@ -8,8 +8,10 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.data.export.BackupSettingsPayload
 import com.example.data.model.HeadingSourceMode
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "pacely_prefs")
@@ -22,6 +24,7 @@ class UserPreferencesRepository(private val context: Context) {
     private val splitIntervalKmKey = floatPreferencesKey("split_interval_km")
     private val headingSourceModeKey = stringPreferencesKey("heading_source_mode")
     private val darkMapModeEnabledKey = booleanPreferencesKey("dark_map_mode_enabled")
+    private val mapOrientationDegreesKey = floatPreferencesKey("map_orientation_degrees")
 
     val weightKgFlow: Flow<Float> = context.dataStore.data.map { prefs ->
         (prefs[weightKgKey] ?: 70f).coerceIn(35f, 200f)
@@ -49,6 +52,11 @@ class UserPreferencesRepository(private val context: Context) {
 
     val darkMapModeEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[darkMapModeEnabledKey] ?: true
+    }
+
+    val mapOrientationDegreesFlow: Flow<Float> = context.dataStore.data.map { prefs ->
+        val saved = prefs[mapOrientationDegreesKey] ?: 180f
+        if (saved == 0f) 0f else 180f
     }
 
     suspend fun setWeightKg(weightKg: Float) {
@@ -91,5 +99,27 @@ class UserPreferencesRepository(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[darkMapModeEnabledKey] = enabled
         }
+    }
+
+    suspend fun setMapOrientationDegrees(degrees: Float) {
+        val normalized = if (degrees == 0f) 0f else 180f
+        context.dataStore.edit { prefs ->
+            prefs[mapOrientationDegreesKey] = normalized
+        }
+    }
+
+    suspend fun getBackupSettingsSnapshot(): BackupSettingsPayload {
+        val prefs = context.dataStore.data.first()
+        val savedOrientation = prefs[mapOrientationDegreesKey] ?: 180f
+        return BackupSettingsPayload(
+            weightKg = (prefs[weightKgKey] ?: 70f).coerceIn(35f, 200f),
+            autoPauseEnabled = prefs[autoPauseKey] ?: true,
+            autoPauseSpeedThresholdMps = (prefs[autoPauseSpeedThresholdKey] ?: 0.5f).coerceIn(0.2f, 2.0f),
+            voiceSplitCuesEnabled = prefs[voiceSplitCuesKey] ?: true,
+            splitIntervalKm = (prefs[splitIntervalKmKey] ?: 1.0f).coerceIn(0.1f, 50.0f),
+            headingSourceMode = HeadingSourceMode.fromString(prefs[headingSourceModeKey]).name,
+            darkMapModeEnabled = prefs[darkMapModeEnabledKey] ?: true,
+            mapOrientationDegrees = if (savedOrientation == 0f) 0f else 180f
+        )
     }
 }

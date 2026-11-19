@@ -327,5 +327,12 @@ class PacelyFeaturesRobolectricTest {
         // Apply matrix to dark street label text (30, 30, 30): should lift to bright readable text (>200)
         val rDarkText = matrix[0] * 30f + matrix[1] * 30f + matrix[2] * 30f + matrix[4]
         assertTrue(rDarkText > 200f)
+
+        // Verify map orientation defaults to 180° and toggles cleanly to 0° and back to 180°
+        assertEquals(180f, prefs.mapOrientationDegreesFlow.first(), 0.01f)
+        prefs.setMapOrientationDegrees(0f)
+        assertEquals(0f, prefs.mapOrientationDegreesFlow.first(), 0.01f)
+        prefs.setMapOrientationDegrees(180f)
+        assertEquals(180f, prefs.mapOrientationDegreesFlow.first(), 0.01f)
     }
 }

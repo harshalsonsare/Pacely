@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Navigation
+import androidx.compose.material.icons.rounded.ScreenRotationAlt
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
@@ -103,6 +104,7 @@ import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint as OsmGeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
+import org.osmdroid.views.Projection
 import org.osmdroid.views.overlay.Overlay
 import java.util.Locale
 import kotlin.math.cos
@@ -134,8 +136,10 @@ fun OsmRouteMap(
     isUsingGpsBearing: Boolean = false,
     needsCompassCalibration: Boolean = false,
     isDarkMapMode: Boolean = true,
+    mapOrientationDegrees: Float = 180f,
     onToggleHeadingSource: (() -> Unit)? = null,
     onToggleDarkMapMode: (() -> Unit)? = null,
+    onToggleMapOrientation: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -207,6 +211,7 @@ fun OsmRouteMap(
                 overlayManager.tilesOverlay.setColorFilter(
                     if (isDarkMapMode) OsmMapManager.createDarkModeColorFilter() else null
                 )
+                setMapOrientation(mapOrientationDegrees)
                 controller.setZoom(16.8)
                 controller.setCenter(
                     OsmGeoPoint(
@@ -278,6 +283,20 @@ fun OsmRouteMap(
             mv.overlayManager.tilesOverlay.setColorFilter(
                 if (isDarkMapMode) OsmMapManager.createDarkModeColorFilter() else null
             )
+            mv.invalidate()
+        }
+    }
+
+    // Keep OSMDroid MapView display orientation synced (180° / 0°) while preserving center-lock
+    LaunchedEffect(mapView, mapOrientationDegrees) {
+        mapView?.let { mv ->
+            val targetCenter = if (isAutoFollow && isLive && lastKnownLocation != null) {
+                OsmGeoPoint(lastKnownLocation.first, lastKnownLocation.second)
+            } else {
+                OsmGeoPoint(mv.mapCenter.latitude, mv.mapCenter.longitude)
+            }
+            mv.setMapOrientation(mapOrientationDegrees)
+            mv.controller.setCenter(targetCenter)
             mv.invalidate()
         }
     }
@@ -384,14 +403,16 @@ fun OsmRouteMap(
             .border(1.dp, HairlineBorder, RoundedCornerShape(20.dp))
             .testTag("live_route_canvas")
     ) {
-        // 100m Coordinate Grid Fallback behind MapView (shown wherever zoom/area has zero tiles on disk)
+        // 100m Coordinate Grid Fallback behind MapView (rotated in sync with MapView orientation)
         Dark100mGridCanvas(
             centerLat = mapCenterLat,
             centerLon = mapCenterLon,
             zoomLevel = mapZoomLevel,
             measured100mPx = gridSpacing100mPx,
             isDarkMode = isDarkMapMode,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { rotationZ = mapOrientationDegrees }
         )
 
         if (mapView != null) {
@@ -502,7 +523,9 @@ fun OsmRouteMap(
                             modifier = Modifier
                                 .size(14.dp)
                                 .graphicsLayer {
-                                    rotationZ = headingDegrees ?: 0f
+                                    rotationZ = CompassMath.normalizeDegrees(
+                                        (headingDegrees ?: 0f) + mapOrientationDegrees
+                                    )
                                 }
                         )
                         Spacer(modifier = Modifier.width(5.dp))
@@ -621,43 +644,81 @@ fun OsmRouteMap(
             }
         }
 
-        // Bottom-Start One-Tap Offline Area Pre-Downloader Button
-        if (isLive) {
-            Surface(
-                color = CarbonSurface.copy(alpha = 0.92f),
-                shape = RoundedCornerShape(50),
-                border = BorderStroke(1.dp, ElectricOrange.copy(alpha = 0.65f)),
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(10.dp)
-                    .clip(RoundedCornerShape(50))
-                    .clickable { showDownloadDialog = true }
-                    .testTag("download_offline_map_button")
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+        // Bottom-Start Controls: Rotate 180° / Reset (0°) + One-Tap Offline Area Pre-Downloader
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(10.dp)
+        ) {
+            if (onToggleMapOrientation != null) {
+                val isRotated180 = mapOrientationDegrees != 0f
+                val toggleColor = if (isRotated180) ElectricOrange else WalkCyan
+                Surface(
+                    color = CarbonSurface.copy(alpha = 0.92f),
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(1.dp, toggleColor.copy(alpha = 0.65f)),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable { onToggleMapOrientation() }
+                        .testTag("toggle_map_rotation_button")
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.CloudDownload,
-                        contentDescription = "Download Offline Map",
-                        tint = ElectricOrange,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    val btnText = if (downloadState.isDownloading && downloadState.totalTiles > 0) {
-                        val pct = ((downloadState.progressTiles.toFloat() / downloadState.totalTiles.toFloat()) * 100f)
-                            .roundToInt().coerceIn(0, 100)
-                        "Caching $pct%"
-                    } else {
-                        "Download Offline Map"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ScreenRotationAlt,
+                            contentDescription = if (isRotated180) "Reset map rotation to 0 degrees" else "Rotate map 180 degrees",
+                            tint = toggleColor,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isRotated180) "Reset (0°)" else "Rotate 180°",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
-                    Text(
-                        text = btnText,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextPrimary,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                }
+            }
+
+            if (isLive) {
+                Surface(
+                    color = CarbonSurface.copy(alpha = 0.92f),
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(1.dp, ElectricOrange.copy(alpha = 0.65f)),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable { showDownloadDialog = true }
+                        .testTag("download_offline_map_button")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CloudDownload,
+                            contentDescription = "Download Offline Map",
+                            tint = ElectricOrange,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        val btnText = if (downloadState.isDownloading && downloadState.totalTiles > 0) {
+                            val pct = ((downloadState.progressTiles.toFloat() / downloadState.totalTiles.toFloat()) * 100f)
+                                .roundToInt().coerceIn(0, 100)
+                            "Caching $pct%"
+                        } else {
+                            "Download Offline Map"
+                        }
+                        Text(
+                            text = btnText,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }
@@ -1140,9 +1201,10 @@ private class OsmRouteOverlay(
         this.isUsingGpsBearing = isUsingGpsBearing
     }
 
-    override fun draw(canvas: android.graphics.Canvas, mapView: MapView, shadow: Boolean) {
-        if (shadow) return
-        val projection = mapView.projection ?: return
+    override fun draw(canvas: android.graphics.Canvas, projection: Projection) {
+        // Note: OSMDroid's DefaultOverlayManager pre-applies Projection.save(canvas) with
+        // mapView.mapOrientation (e.g., 180°). Drawing in projection pixel space keeps polylines,
+        // the GPS accuracy circle, and the heading cone/arrow locked to geographic coordinates.
 
         // 1. Pace-Colored Route Polyline grouped by segmentIndex
         if (points.size >= 2) {
@@ -1197,7 +1259,7 @@ private class OsmRouteOverlay(
             }
         }
 
-        // 2. Live GPS Accuracy Circle + Heading Arrow + Position Dot
+        // 2. Live GPS Accuracy Circle + Heading Arrow + Position Dot (aligned to rotated map frame)
         if (isLive) {
             val activeCoord = liveLocation ?: points.lastOrNull()?.let { it.latitude to it.longitude }
             if (activeCoord != null) {
@@ -1216,26 +1278,24 @@ private class OsmRouteOverlay(
                 if (hDeg != null) {
                     val arrowColor = if (isUsingGpsBearing) GpsEmerald else Color(accentArgb)
                     val coneLen = 26f * densityPx
-                    val rad = Math.toRadians(hDeg.toDouble() - 90.0)
-                    val spread = Math.toRadians(24.0)
-                    val tipX = cx + (cos(rad) * coneLen).toFloat()
-                    val tipY = cy + (sin(rad) * coneLen).toFloat()
-                    val leftX = cx + (cos(rad - spread) * (coneLen * 0.62f)).toFloat()
-                    val leftY = cy + (sin(rad - spread) * (coneLen * 0.62f)).toFloat()
-                    val rightX = cx + (cos(rad + spread) * (coneLen * 0.62f)).toFloat()
-                    val rightY = cy + (sin(rad + spread) * (coneLen * 0.62f)).toFloat()
+                    val wingHalfWidth = 10.5f * densityPx
+                    val wingBackOffset = coneLen * 0.62f
 
+                    canvas.save()
+                    // Rotate clockwise from geographic North (-Y in projection pixel space)
+                    canvas.rotate(hDeg, cx, cy)
                     val conePath = Path().apply {
                         moveTo(cx, cy)
-                        lineTo(leftX, leftY)
-                        lineTo(tipX, tipY)
-                        lineTo(rightX, rightY)
+                        lineTo(cx - wingHalfWidth, cy - wingBackOffset)
+                        lineTo(cx, cy - coneLen)
+                        lineTo(cx + wingHalfWidth, cy - wingBackOffset)
                         close()
                     }
                     headingConePaint.color = arrowColor.copy(alpha = 0.36f).toArgb()
                     canvas.drawPath(conePath, headingConePaint)
                     headingLinePaint.color = arrowColor.toArgb()
-                    canvas.drawLine(cx, cy, tipX, tipY, headingLinePaint)
+                    canvas.drawLine(cx, cy, cx, cy - coneLen, headingLinePaint)
+                    canvas.restore()
                 }
 
                 markerFillPaint.color = android.graphics.Color.WHITE

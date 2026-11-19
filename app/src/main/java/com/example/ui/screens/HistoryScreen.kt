@@ -177,6 +177,20 @@ fun HistoryScreen(
                     workoutCount = state.totalWorkoutCount,
                     isTransferring = state.isTransferring,
                     bannerState = transferBanner,
+                    onExportFullBackupZipUri = { uri, done ->
+                        viewModel.exportFullBackupZipToUri(context, uri) { result ->
+                            val banner = result.fold(
+                                onSuccess = { count ->
+                                    TransferBannerState("Exported $count workouts (full_backup.json + .gpx routes) to .zip.", isError = false)
+                                },
+                                onFailure = { err ->
+                                    TransferBannerState("Backup failed: ${err.localizedMessage ?: "Unknown error"}", isError = true)
+                                }
+                            )
+                            transferBanner = banner
+                            done(banner)
+                        }
+                    },
                     onExportJsonUri = { uri, done ->
                         viewModel.exportAllToUri(context, uri, isJson = true) { result ->
                             val banner = result.fold(

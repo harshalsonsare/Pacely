@@ -101,6 +101,11 @@ class WorkoutTrackingManager(
             }
         }
         scope.launch {
+            preferencesRepository.mapOrientationDegreesFlow.collect { degrees ->
+                _uiState.update { it.copy(mapOrientationDegrees = degrees) }
+            }
+        }
+        scope.launch {
             workoutRepository.allShoes.collect { shoes ->
                 if (!hasUserOverriddenShoe) {
                     val defaultId = shoes.firstOrNull { it.isDefault && !it.isRetired }?.id
@@ -198,6 +203,19 @@ class WorkoutTrackingManager(
 
     fun toggleDarkMapMode() {
         setDarkMapModeEnabled(!_uiState.value.darkMapModeEnabled)
+    }
+
+    fun setMapOrientationDegrees(degrees: Float) {
+        val normalized = if (degrees == 0f) 0f else 180f
+        _uiState.update { it.copy(mapOrientationDegrees = normalized) }
+        scope.launch {
+            preferencesRepository.setMapOrientationDegrees(normalized)
+        }
+    }
+
+    fun toggleMapOrientation() {
+        val next = if (_uiState.value.mapOrientationDegrees == 0f) 180f else 0f
+        setMapOrientationDegrees(next)
     }
 
     fun selectShoe(shoeId: Long?) {
@@ -330,7 +348,8 @@ class WorkoutTrackingManager(
                 lastKnownLocation = current.lastKnownLocation,
                 currentAltitudeMeters = current.currentAltitudeMeters,
                 weightKg = current.weightKg,
-                darkMapModeEnabled = current.darkMapModeEnabled
+                darkMapModeEnabled = current.darkMapModeEnabled,
+                mapOrientationDegrees = current.mapOrientationDegrees
             )
         }
     }

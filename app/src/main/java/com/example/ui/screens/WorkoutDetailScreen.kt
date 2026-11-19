@@ -23,9 +23,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DoNotDisturbOnTotalSilence
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.FolderZip
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -57,6 +59,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.export.WorkoutExporter
 import com.example.data.local.LapSplitEntity
 import com.example.data.model.ActivityType
 import com.example.tracking.GeoMath
@@ -93,8 +96,23 @@ fun WorkoutDetailScreen(
     val details by viewModel.observeWorkoutDetail(workoutId).collectAsStateWithLifecycle(initialValue = null)
     val shoes by viewModel.shoes.collectAsStateWithLifecycle()
     val darkMapMode by viewModel.darkMapModeEnabled.collectAsStateWithLifecycle()
+    val mapOrientationDegrees by viewModel.mapOrientationDegrees.collectAsStateWithLifecycle()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var shoeDropdownExpanded by remember { mutableStateOf(false) }
+
+    val zipBundleLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null) {
+            viewModel.exportWorkoutBundleZipToUri(context, workoutId, uri) { res ->
+                res.onSuccess {
+                    onShowMessage("Exported workout .zip (.gpx + .json).")
+                }.onFailure { err ->
+                    onShowMessage("Workout export failed: ${err.localizedMessage ?: "Unknown error"}")
+                }
+            }
+        }
+    }
 
     val gpxLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/gpx+xml")
@@ -110,7 +128,21 @@ fun WorkoutDetailScreen(
         }
     }
 
-    val shareGpx = {
+    val jsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            viewModel.exportWorkoutJsonToUri(context, workoutId, uri) { res ->
+                res.onSuccess {
+                    onShowMessage("Downloaded workout JSON metadata & splits.")
+                }.onFailure { err ->
+                    onShowMessage("JSON export failed: ${err.localizedMessage ?: "Unknown error"}")
+                }
+            }
+        }
+    }
+
+    val shareBundle = {
         viewModel.prepareShareFile(context, workoutId) { res ->
             res.onSuccess { file ->
                 val uri = FileProvider.getUriForFile(
@@ -119,14 +151,14 @@ fun WorkoutDetailScreen(
                     file
                 )
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "application/gpx+xml"
+                    type = "application/zip"
                     putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_SUBJECT, "Pacely GPX Route")
+                    putExtra(Intent.EXTRA_SUBJECT, "Pacely Workout Export (.gpx + .json)")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                context.startActivity(Intent.createChooser(shareIntent, "Share GPX Route"))
+                context.startActivity(Intent.createChooser(shareIntent, "Share Workout (.gpx + .json)"))
             }.onFailure { err ->
-                onShowMessage("Unable to share GPX: ${err.localizedMessage ?: "Error"}")
+                onShowMessage("Unable to share workout: ${err.localizedMessage ?: "Error"}")
             }
         }
     }
@@ -235,7 +267,9 @@ fun WorkoutDetailScreen(
                     isTracking = false,
                     avgPaceSecPerKm = workout.avgPaceSecPerKm,
                     isDarkMapMode = darkMapMode,
+                    mapOrientationDegrees = mapOrientationDegrees,
                     onToggleDarkMapMode = viewModel::toggleDarkMapMode,
+                    onToggleMapOrientation = viewModel::toggleMapOrientation,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(270.dp)
@@ -312,49 +346,92 @@ fun WorkoutDetailScreen(
             }
 
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    val fileDate = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date(workout.startTimeMillis))
+                val baseName = WorkoutExporter.singleWorkoutBaseName(workout.startTimeMillis)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
-                        onClick = { gpxLauncher.launch("pacely_${type.name.lowercase()}_$fileDate.gpx") },
+                        onClick = { zipBundleLauncher.launch("$baseName.zip") },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = accentColor,
                             contentColor = ObsidianBg
                         ),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .testTag("export_gpx_button")
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("export_workout_bundle_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Download,
+                            imageVector = Icons.Rounded.FolderZip,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Download GPX", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Workout (.gpx + .json)", fontWeight = FontWeight.Bold)
                     }
 
-                    OutlinedButton(
-                        onClick = shareGpx,
-                        border = BorderStroke(1.dp, HairlineBorder),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .testTag("share_gpx_button")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Share,
-                            contentDescription = null,
-                            tint = TextPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Share GPX", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                        OutlinedButton(
+                            onClick = { gpxLauncher.launch("$baseName.gpx") },
+                            border = BorderStroke(1.dp, HairlineBorder),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("export_gpx_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Download,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("GPX", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        OutlinedButton(
+                            onClick = { jsonLauncher.launch("$baseName.json") },
+                            border = BorderStroke(1.dp, HairlineBorder),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("export_json_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Code,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("JSON", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        OutlinedButton(
+                            onClick = shareBundle,
+                            border = BorderStroke(1.dp, HairlineBorder),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("share_gpx_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Share,
+                                contentDescription = null,
+                                tint = TextPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("Share", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }

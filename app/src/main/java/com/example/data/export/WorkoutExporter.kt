@@ -5,10 +5,24 @@ import com.example.data.model.WorkoutWithDetails
 import com.example.tracking.GeoMath
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+
+data class BackupSettingsPayload(
+    val weightKg: Float,
+    val autoPauseEnabled: Boolean,
+    val autoPauseSpeedThresholdMps: Float,
+    val voiceSplitCuesEnabled: Boolean,
+    val splitIntervalKm: Float,
+    val headingSourceMode: String,
+    val darkMapModeEnabled: Boolean,
+    val mapOrientationDegrees: Float
+)
 
 object WorkoutExporter {
 
@@ -18,63 +32,169 @@ object WorkoutExporter {
         return sdf.format(Date(millis))
     }
 
-    fun toJson(workouts: List<WorkoutWithDetails>): String {
+    fun formatWorkoutDateStamp(startTimeMillis: Long): String {
+        val sdf = SimpleDateFormat("yyyyMMdd", Locale.US)
+        return sdf.format(Date(startTimeMillis))
+    }
+
+    fun singleWorkoutBaseName(startTimeMillis: Long): String =
+        "workout_${formatWorkoutDateStamp(startTimeMillis)}"
+
+    private fun workoutToJsonObject(details: WorkoutWithDetails): JSONObject {
+        val w = details.workout
+        val obj = JSONObject().apply {
+            put("id", w.id)
+            put("title", w.title)
+            put("activityType", w.activityType)
+            put("startTime", isoUtc(w.startTimeMillis))
+            put("endTime", isoUtc(w.endTimeMillis))
+            put("startTimeMillis", w.startTimeMillis)
+            put("endTimeMillis", w.endTimeMillis)
+            put("elapsedSeconds", w.elapsedMillis / 1000.0)
+            put("distanceMeters", w.distanceMeters)
+            put("avgPaceSecPerKm", w.avgPaceSecPerKm)
+            put("caloriesBurned", w.caloriesBurned)
+            put("elevationGainMeters", w.elevationGainMeters)
+            put("elevationLossMeters", w.elevationLossMeters)
+        }
+
+        val splitsArray = JSONArray()
+        details.splits.forEach { split ->
+            splitsArray.put(
+                JSONObject().apply {
+                    put("lapNumber", split.lapNumber)
+                    put("distanceMeters", split.distanceMeters)
+                    put("durationSeconds", split.durationMillis / 1000.0)
+                    put("paceSecPerKm", split.paceSecPerKm)
+                    put("elevationDeltaMeters", split.elevationDeltaMeters)
+                }
+            )
+        }
+        obj.put("splits", splitsArray)
+
+        val pointsArray = JSONArray()
+        details.trackPoints.forEach { pt ->
+            pointsArray.put(
+                JSONObject().apply {
+                    put("lat", pt.latitude)
+                    put("lon", pt.longitude)
+                    put("ele", pt.altitudeMeters)
+                    put("time", isoUtc(pt.timestampMillis))
+                    put("speedMps", pt.speedMps.toDouble())
+                    put("segment", pt.segmentIndex)
+                }
+            )
+        }
+        obj.put("trackPoints", pointsArray)
+        return obj
+    }
+
+    fun toJson(
+        workouts: List<WorkoutWithDetails>,
+        settings: BackupSettingsPayload? = null
+    ): String {
         val root = JSONObject()
         root.put("app", "Pacely")
+        root.put("formatVersion", 2)
         root.put("exportedAt", isoUtc(System.currentTimeMillis()))
         root.put("workoutCount", workouts.size)
 
+        val totalDistanceMeters = workouts.sumOf { it.workout.distanceMeters }
+        val totalElapsedSeconds = workouts.sumOf { it.workout.elapsedMillis } / 1000.0
+        val totalCalories = workouts.sumOf { it.workout.caloriesBurned }
+        val totalElevationGainMeters = workouts.sumOf { it.workout.elevationGainMeters }
+        val runCount = workouts.count { it.workout.activityType.equals("RUN", ignoreCase = true) }
+        val walkCount = workouts.count { it.workout.activityType.equals("WALK", ignoreCase = true) }
+
+        root.put(
+            "stats",
+            JSONObject().apply {
+                put("totalWorkouts", workouts.size)
+                put("runCount", runCount)
+                put("walkCount", walkCount)
+                put("totalDistanceMeters", totalDistanceMeters)
+                put("totalElapsedSeconds", totalElapsedSeconds)
+                put("totalCalories", totalCalories)
+                put("totalElevationGainMeters", totalElevationGainMeters)
+            }
+        )
+
+        if (settings != null) {
+            root.put(
+                "settings",
+                JSONObject().apply {
+                    put("weightKg", settings.weightKg.toDouble())
+                    put("autoPauseEnabled", settings.autoPauseEnabled)
+                    put("autoPauseSpeedThresholdMps", settings.autoPauseSpeedThresholdMps.toDouble())
+                    put("voiceSplitCuesEnabled", settings.voiceSplitCuesEnabled)
+                    put("splitIntervalKm", settings.splitIntervalKm.toDouble())
+                    put("headingSourceMode", settings.headingSourceMode)
+                    put("darkMapModeEnabled", settings.darkMapModeEnabled)
+                    put("mapOrientationDegrees", settings.mapOrientationDegrees.toDouble())
+                }
+            )
+        }
+
         val workoutArray = JSONArray()
         workouts.forEach { details ->
-            val w = details.workout
-            val obj = JSONObject().apply {
-                put("id", w.id)
-                put("title", w.title)
-                put("activityType", w.activityType)
-                put("startTime", isoUtc(w.startTimeMillis))
-                put("endTime", isoUtc(w.endTimeMillis))
-                put("startTimeMillis", w.startTimeMillis)
-                put("endTimeMillis", w.endTimeMillis)
-                put("elapsedSeconds", w.elapsedMillis / 1000.0)
-                put("distanceMeters", w.distanceMeters)
-                put("avgPaceSecPerKm", w.avgPaceSecPerKm)
-                put("caloriesBurned", w.caloriesBurned)
-                put("elevationGainMeters", w.elevationGainMeters)
-                put("elevationLossMeters", w.elevationLossMeters)
-            }
-
-            val splitsArray = JSONArray()
-            details.splits.forEach { split ->
-                splitsArray.put(
-                    JSONObject().apply {
-                        put("lapNumber", split.lapNumber)
-                        put("distanceMeters", split.distanceMeters)
-                        put("durationSeconds", split.durationMillis / 1000.0)
-                        put("paceSecPerKm", split.paceSecPerKm)
-                        put("elevationDeltaMeters", split.elevationDeltaMeters)
-                    }
-                )
-            }
-            obj.put("splits", splitsArray)
-
-            val pointsArray = JSONArray()
-            details.trackPoints.forEach { pt ->
-                pointsArray.put(
-                    JSONObject().apply {
-                        put("lat", pt.latitude)
-                        put("lon", pt.longitude)
-                        put("ele", pt.altitudeMeters)
-                        put("time", isoUtc(pt.timestampMillis))
-                        put("speedMps", pt.speedMps.toDouble())
-                        put("segment", pt.segmentIndex)
-                    }
-                )
-            }
-            obj.put("trackPoints", pointsArray)
-            workoutArray.put(obj)
+            workoutArray.put(workoutToJsonObject(details))
         }
         root.put("workouts", workoutArray)
         return root.toString(2)
+    }
+
+    fun toSingleWorkoutJson(details: WorkoutWithDetails): String {
+        val root = workoutToJsonObject(details)
+        root.put("app", "Pacely")
+        root.put("formatVersion", 2)
+        root.put("exportedAt", isoUtc(System.currentTimeMillis()))
+        return root.toString(2)
+    }
+
+    fun writeSingleWorkoutZip(
+        details: WorkoutWithDetails,
+        outputStream: OutputStream
+    ) {
+        val baseName = singleWorkoutBaseName(details.workout.startTimeMillis)
+        ZipOutputStream(outputStream).use { zip ->
+            val gpxBytes = toGpx(details).toByteArray(Charsets.UTF_8)
+            zip.putNextEntry(ZipEntry("$baseName.gpx"))
+            zip.write(gpxBytes)
+            zip.closeEntry()
+
+            val jsonBytes = toSingleWorkoutJson(details).toByteArray(Charsets.UTF_8)
+            zip.putNextEntry(ZipEntry("$baseName.json"))
+            zip.write(jsonBytes)
+            zip.closeEntry()
+        }
+    }
+
+    fun writeFullBackupZip(
+        workouts: List<WorkoutWithDetails>,
+        settings: BackupSettingsPayload? = null,
+        outputStream: OutputStream
+    ) {
+        ZipOutputStream(outputStream).use { zip ->
+            val backupJsonBytes = toJson(workouts, settings).toByteArray(Charsets.UTF_8)
+            zip.putNextEntry(ZipEntry("full_backup.json"))
+            zip.write(backupJsonBytes)
+            zip.closeEntry()
+
+            val usedEntryNames = mutableSetOf<String>()
+            workouts.forEach { details ->
+                val dateStamp = formatWorkoutDateStamp(details.workout.startTimeMillis)
+                var candidate = "gpx/workout_$dateStamp.gpx"
+                var suffix = 2
+                while (!usedEntryNames.add(candidate)) {
+                    candidate = "gpx/workout_${dateStamp}_$suffix.gpx"
+                    suffix++
+                }
+                val gpxBytes = toGpx(details).toByteArray(Charsets.UTF_8)
+                zip.putNextEntry(ZipEntry(candidate))
+                zip.write(gpxBytes)
+                zip.closeEntry()
+            }
+        }
     }
 
     fun toCsv(workouts: List<WorkoutEntity>): String {

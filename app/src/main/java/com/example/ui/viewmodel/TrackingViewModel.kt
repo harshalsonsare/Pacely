@@ -49,6 +49,10 @@ class TrackingViewModel(
         trackingManager.toggleDarkMapMode()
     }
 
+    fun toggleMapOrientation() {
+        trackingManager.toggleMapOrientation()
+    }
+
     fun selectActivityType(type: ActivityType) {
         trackingManager.setActivityType(type)
     }

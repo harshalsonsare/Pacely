@@ -238,8 +238,10 @@ fun TrackScreen(
                         isUsingGpsBearing = state.isUsingGpsBearing,
                         needsCompassCalibration = state.needsCompassCalibration,
                         isDarkMapMode = state.darkMapModeEnabled,
+                        mapOrientationDegrees = state.mapOrientationDegrees,
                         onToggleHeadingSource = viewModel::toggleHeadingSourceMode,
                         onToggleDarkMapMode = viewModel::toggleDarkMapMode,
+                        onToggleMapOrientation = viewModel::toggleMapOrientation,
                         modifier = Modifier
                             .weight(1.05f)
                             .fillMaxHeight()
@@ -290,8 +292,10 @@ fun TrackScreen(
                         isUsingGpsBearing = state.isUsingGpsBearing,
                         needsCompassCalibration = state.needsCompassCalibration,
                         isDarkMapMode = state.darkMapModeEnabled,
+                        mapOrientationDegrees = state.mapOrientationDegrees,
                         onToggleHeadingSource = viewModel::toggleHeadingSourceMode,
                         onToggleDarkMapMode = viewModel::toggleDarkMapMode,
+                        onToggleMapOrientation = viewModel::toggleMapOrientation,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(270.dp)

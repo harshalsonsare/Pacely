@@ -13,11 +13,14 @@ import com.example.tracking.GeoMath
 import org.json.JSONArray
 import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.StringReader
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
+import java.util.zip.ZipInputStream
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -44,7 +47,8 @@ data class ImportSummary(
 
 object WorkoutImporter {
 
-    private const val MAX_IMPORT_BYTES = 25 * 1024 * 1024 // 25 MB safety limit
+    private const val MAX_IMPORT_BYTES = 25 * 1024 * 1024 // 25 MB compressed/raw limit
+    private const val MAX_UNCOMPRESSED_ZIP_BYTES = 50 * 1024 * 1024 // 50 MB zip extraction cap
 
     fun parseFromUri(
         contentResolver: ContentResolver,
@@ -52,15 +56,123 @@ object WorkoutImporter {
         defaultWeightKg: Float
     ): List<ImportedWorkoutData> {
         val fileName = queryDisplayName(contentResolver, uri)
-        val rawText = contentResolver.openInputStream(uri)?.use { stream ->
-            val bytes = stream.readBytes()
-            if (bytes.size > MAX_IMPORT_BYTES) {
+        val bytes = contentResolver.openInputStream(uri)?.use { stream ->
+            val raw = stream.readBytes()
+            if (raw.size > MAX_IMPORT_BYTES) {
                 throw IllegalArgumentException("File is too large to import (max 25 MB).")
             }
-            bytes.toString(Charsets.UTF_8)
+            raw
         } ?: throw IllegalArgumentException("Unable to read the selected file.")
 
-        return parseRawContent(rawText, fileName, defaultWeightKg)
+        return parseRawBytes(bytes, fileName, defaultWeightKg)
+    }
+
+    fun parseRawBytes(
+        bytes: ByteArray,
+        fileName: String? = null,
+        defaultWeightKg: Float = 70f
+    ): List<ImportedWorkoutData> {
+        if (bytes.isEmpty()) {
+            throw IllegalArgumentException("The selected file is empty.")
+        }
+        val lowerName = fileName?.lowercase(Locale.US).orEmpty()
+        if (isZipHeader(bytes) || lowerName.endsWith(".zip")) {
+            return parseZipBytes(bytes, defaultWeightKg)
+        }
+        return parseRawContent(bytes.toString(Charsets.UTF_8), fileName, defaultWeightKg)
+    }
+
+    private fun isZipHeader(bytes: ByteArray): Boolean {
+        if (bytes.size < 4) return false
+        return bytes[0] == 0x50.toByte() &&
+            bytes[1] == 0x4B.toByte() &&
+            ((bytes[2] == 0x03.toByte() && bytes[3] == 0x04.toByte()) ||
+                (bytes[2] == 0x05.toByte() && bytes[3] == 0x06.toByte()))
+    }
+
+    fun parseZipBytes(
+        zipBytes: ByteArray,
+        defaultWeightKg: Float = 70f
+    ): List<ImportedWorkoutData> {
+        val jsonEntries = mutableListOf<Pair<String, String>>()
+        val gpxEntries = mutableListOf<Pair<String, String>>()
+        var totalExtractedBytes = 0
+
+        try {
+            ZipInputStream(ByteArrayInputStream(zipBytes)).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val entryName = entry.name.orEmpty()
+                    val simpleName = entryName.substringAfterLast('/')
+                    if (!entry.isDirectory && !entryName.startsWith("__MACOSX/") && !simpleName.startsWith(".")) {
+                        val lower = simpleName.lowercase(Locale.US)
+                        if (lower.endsWith(".json") || lower.endsWith(".gpx")) {
+                            val out = ByteArrayOutputStream()
+                            val buffer = ByteArray(8192)
+                            while (true) {
+                                val read = zis.read(buffer)
+                                if (read <= 0) break
+                                totalExtractedBytes += read
+                                if (totalExtractedBytes > MAX_UNCOMPRESSED_ZIP_BYTES) {
+                                    throw IllegalArgumentException("ZIP archive exceeds 50 MB uncompressed safety limit.")
+                                }
+                                out.write(buffer, 0, read)
+                            }
+                            val text = out.toByteArray().toString(Charsets.UTF_8)
+                            if (lower.endsWith(".json")) {
+                                jsonEntries.add(simpleName to text)
+                            } else {
+                                gpxEntries.add(simpleName to text)
+                            }
+                        }
+                    }
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                }
+            }
+        } catch (e: IllegalArgumentException) {
+            throw e
+        } catch (_: Exception) {
+            throw IllegalArgumentException("Corrupted ZIP archive: unable to extract workout files.")
+        }
+
+        if (jsonEntries.isEmpty() && gpxEntries.isEmpty()) {
+            throw IllegalArgumentException("ZIP archive contains no .json or .gpx workout files.")
+        }
+
+        val combined = mutableListOf<ImportedWorkoutData>()
+        val coveredStartSeconds = mutableSetOf<Long>()
+
+        // Prefer JSON entries first since they carry rich metadata, splits, and stats
+        jsonEntries.forEach { (_, text) ->
+            val parsed = parseBackupJson(text, defaultWeightKg)
+            parsed.forEach { item ->
+                val sec = item.workout.startTimeMillis / 1000L
+                val alreadyInBundle = coveredStartSeconds.any { abs(it - sec) <= 2L }
+                if (!alreadyInBundle) {
+                    coveredStartSeconds.add(sec)
+                    combined.add(item)
+                }
+            }
+        }
+
+        // Import any GPX files not already covered by JSON in the same ZIP bundle
+        gpxEntries.forEach { (name, text) ->
+            val parsed = parseGpx(text, name.substringBeforeLast('.'), defaultWeightKg)
+            parsed.forEach { item ->
+                val sec = item.workout.startTimeMillis / 1000L
+                val alreadyInBundle = coveredStartSeconds.any { abs(it - sec) <= 2L }
+                if (!alreadyInBundle) {
+                    coveredStartSeconds.add(sec)
+                    combined.add(item)
+                }
+            }
+        }
+
+        if (combined.isEmpty()) {
+            throw IllegalArgumentException("ZIP archive contained no importable workouts.")
+        }
+        return combined
     }
 
     fun parseRawContent(
@@ -80,7 +192,7 @@ object WorkoutImporter {
             trimmed.startsWith("<") || lowerName.endsWith(".gpx") ->
                 parseGpx(trimmed, fileName?.substringBeforeLast('.'), defaultWeightKg)
             else ->
-                throw IllegalArgumentException("Unsupported file format. Please select a .json backup or .gpx track file.")
+                throw IllegalArgumentException("Unsupported file format. Please select a .json, .gpx, or .zip backup file.")
         }
     }
 
@@ -94,8 +206,16 @@ object WorkoutImporter {
             throw IllegalArgumentException("Corrupted JSON file: unable to parse workout backup.")
         }
 
-        val workoutsArray = root.optJSONArray("workouts")
-            ?: throw IllegalArgumentException("Invalid backup JSON: missing 'workouts' array.")
+        val workoutsArray = when {
+            root.has("workouts") -> root.optJSONArray("workouts")
+                ?: throw IllegalArgumentException("Invalid backup JSON: 'workouts' is not an array.")
+            root.has("workout") && root.optJSONObject("workout") != null ->
+                JSONArray().put(root.getJSONObject("workout"))
+            root.has("startTimeMillis") || root.has("startTime") ->
+                JSONArray().put(root)
+            else ->
+                throw IllegalArgumentException("Invalid backup JSON: missing 'workouts' array.")
+        }
 
         if (workoutsArray.length() == 0) {
             throw IllegalArgumentException("Backup file contains 0 workouts.")

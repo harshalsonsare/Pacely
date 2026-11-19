@@ -114,6 +114,28 @@ class SettingsViewModel(
         }
     }
 
+    fun exportFullBackupZipToUri(
+        context: Context,
+        uri: Uri,
+        onComplete: (Result<Int>) -> Unit
+    ) {
+        viewModelScope.launch {
+            transferringFlow.value = true
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val all = workoutRepository.getAllWorkoutsWithDetailsOnce()
+                    val settings = preferencesRepository.getBackupSettingsSnapshot()
+                    context.contentResolver.openOutputStream(uri)?.use { stream ->
+                        WorkoutExporter.writeFullBackupZip(all, settings, stream)
+                    } ?: error("Unable to open output stream")
+                    all.size
+                }
+            }
+            transferringFlow.value = false
+            onComplete(result)
+        }
+    }
+
     fun exportAllToUri(
         context: Context,
         uri: Uri,
@@ -126,7 +148,8 @@ class SettingsViewModel(
                 runCatching {
                     val all = workoutRepository.getAllWorkoutsWithDetailsOnce()
                     val content = if (isJson) {
-                        WorkoutExporter.toJson(all)
+                        val settings = preferencesRepository.getBackupSettingsSnapshot()
+                        WorkoutExporter.toJson(all, settings)
                     } else {
                         WorkoutExporter.toCsv(all.map { it.workout })
                     }

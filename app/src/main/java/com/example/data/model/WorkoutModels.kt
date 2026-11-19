@@ -98,7 +98,8 @@ data class TrackingUiState(
     val currentLapElapsedMillis: Long = 0L,
     val lastKnownLocation: Pair<Double, Double>? = null,
     val weightKg: Float = 70f,
-    val darkMapModeEnabled: Boolean = true
+    val darkMapModeEnabled: Boolean = true,
+    val mapOrientationDegrees: Float = 180f
 )
 
 data class PersonalRecord(
